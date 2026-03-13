@@ -12,17 +12,19 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="{% static 'web/styles.css' %}" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   </head>
   <body>
     <div class="bg-noise"></div>
     <header class="hero">
       <div class="hero__text">
         <p class="eyebrow">Static APK Analysis</p>
-        <h1>APK Insight Lab</h1>
+        <h1>APK Insight Lab Plus</h1>
         <p class="sub">
           Tải APK lên để phân tích tĩnh: permissions, API calls, intents, strings,
           network indicators, certificates. Kết quả là gợi ý rủi ro, không phải kết luận tuyệt đối.
         </p>
+        <button class="btn btn--stats" id="openStats" type="button">📊 Thống kê lịch sử</button>
       </div>
       <div class="hero__card">
         <div class="card__glow"></div>
@@ -90,6 +92,166 @@
         <div class="kv" id="meta"></div>
       </section>
 
+      <section class="panel" id="ahpPanel" style="display:none">
+        <div class="panel__title">AHP là trọng tâm đánh giá
+          <span class="ahp__model-badge" id="ahpModelBadge"></span>
+        </div>
+
+        <div class="ahp__spotlight">
+          <div class="ahp__spotlight-badge">AHP-first</div>
+          <p>
+            Trong project này, AHP là lớp ra quyết định chính: hệ thống dùng ma trận so sánh cặp để suy ra trọng số tiêu chí,
+            kiểm tra nhất quán CR, rồi mới kết hợp xác suất AI để cho điểm cuối.
+          </p>
+          <p>
+            Vai trò AI: cung cấp P<sub>AI</sub> như một tín hiệu bổ sung. Vai trò AHP: giải thích được vì sao điểm rủi ro tăng/giảm theo từng tiêu chí.
+          </p>
+        </div>
+
+        <!-- ① Combined result -->
+        <div class="ahp__combined-row">
+          <div>
+            <div class="ahp__label">Điểm tổng hợp (AHP + AI)</div>
+            <div class="ahp__combined-score" id="ahpCombined">—</div>
+          </div>
+          <div class="ahp__verdict" id="ahpVerdict">—</div>
+        </div>
+
+        <div class="ahp__formula">
+          <code>Score = 0.4 × P<sub>AI</sub> + 0.6 × (w₁S₁ + w₂S₂ + w₃S₃ + w₄S₄)</code>
+          &nbsp;·&nbsp; &lt;0.30 AN TOÀN &nbsp;·&nbsp; 0.30–0.70 NGHI NGỜ &nbsp;·&nbsp; ≥0.70 NGUY HIỂM
+          <div class="ahp__formula-src">
+            Nguồn dạng công thức hợp nhất có trọng số:
+            <a href="https://en.wikipedia.org/wiki/Weighted_sum_model" target="_blank" rel="noopener noreferrer">Weighted Sum Model</a>
+            ·
+            <a href="https://en.wikipedia.org/wiki/Convex_combination" target="_blank" rel="noopener noreferrer">Convex Combination</a>
+          </div>
+        </div>
+
+        <div class="ahp__refs">
+          <div class="ahp__refs-title">Nguồn tham khảo mở được trực tiếp</div>
+          <ul>
+            <li>
+              Tổng quan AHP (mục use/evaluate/check consistency, có dẫn chiếu tài liệu gốc Saaty):
+              <a href="https://en.wikipedia.org/wiki/Analytic_hierarchy_process" target="_blank" rel="noopener noreferrer">Wikipedia - Analytic hierarchy process</a>
+            </li>
+            <li>
+              Công thức Consistency Index và Consistency Ratio (CI, RI, CR) kèm bảng RI:
+              <a href="https://people.revoledu.com/kardi/tutorial/AHP/Consistency.htm" target="_blank" rel="noopener noreferrer">AHP Tutorial - Consistency Index and Consistency Ratio</a>
+            </li>
+            <li>
+              Tài liệu giải thích AHP/ANP và pairwise comparison của chính Saaty (dạng PDF, thường được các môn OR trích):
+              <a href="https://doi.org/10.1007/BF03191825" target="_blank" rel="noopener noreferrer">Saaty (2008) - Relative Measurement and Pairwise Comparisons</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="ahp__talktrack">
+          <div class="ahp__refs-title">Cách trình bày với giảng viên (ngắn gọn)</div>
+          <ol>
+            <li>AHP là lõi quyết định: hệ thống tách 4 nhóm tiêu chí C1..C4, gán trọng số bằng ma trận so sánh cặp.</li>
+            <li>Độ tin cậy của trọng số được kiểm bằng CR; nếu CR thấp (&lt; 0.10) thì đánh giá nhất quán.</li>
+            <li>AI chỉ là tín hiệu bổ sung xác suất, không thay thế AHP.</li>
+            <li>Điểm cuối cùng là hợp nhất có trọng số để vừa có tính giải thích (AHP) vừa có tính dự báo (AI).</li>
+          </ol>
+        </div>
+
+        <div class="ahp__section-title">Sơ đồ khối chi tiết AHP + AI trong project</div>
+        <div class="ahp__flow">
+          <div class="ahp__flow-col">
+            <div class="ahp__flow-node ahp__flow-node--input">
+              <div class="ahp__flow-node-title">B1. APK Input</div>
+              <div class="ahp__flow-node-text">Đọc Manifest + DEX + Strings + Components</div>
+            </div>
+            <div class="ahp__flow-arrow">↓</div>
+            <div class="ahp__flow-node">
+              <div class="ahp__flow-node-title">B2. Feature Extraction</div>
+              <div class="ahp__flow-node-text">Sinh vector đặc trưng nhị phân x (theo bộ feature của model)</div>
+            </div>
+            <div class="ahp__flow-arrow">↓</div>
+            <div class="ahp__flow-node ahp__flow-node--ahp">
+              <div class="ahp__flow-node-title">B3-AHP. Nhánh quyết định chính</div>
+              <div class="ahp__flow-node-text">Gom 4 nhóm C1..C4 → tính S<sub>i</sub>=n<sub>i</sub>/N<sub>i</sub> → dùng trọng số w<sub>i</sub> từ ma trận A</div>
+            </div>
+            <div class="ahp__flow-arrow">↓</div>
+            <div class="ahp__flow-node ahp__flow-node--ahp">
+              <div class="ahp__flow-node-title">B4-AHP. Consistency Gate</div>
+              <div class="ahp__flow-node-text">Tính λ<sub>max</sub>, CI, RI, CR; kiểm tra CR &lt; 0.10 trước khi kết luận</div>
+            </div>
+            <div class="ahp__flow-arrow">↓</div>
+            <div class="ahp__flow-node ahp__flow-node--ahp-final">
+              <div class="ahp__flow-node-title">B5-AHP. Expert Score</div>
+              <div class="ahp__flow-node-text">Score<sub>Expert</sub> = Σ(w<sub>i</sub>·S<sub>i</sub>)</div>
+            </div>
+          </div>
+
+          <div class="ahp__flow-col ahp__flow-col--ai">
+            <div class="ahp__flow-node ahp__flow-node--ai">
+              <div class="ahp__flow-node-title">B3-AI. Nhánh dự báo</div>
+              <div class="ahp__flow-node-text">Random Forest dự đoán xác suất malware P<sub>AI</sub></div>
+            </div>
+            <div class="ahp__flow-node ahp__flow-node--ai">
+              <div class="ahp__flow-node-title">B4-AI. Model evidence</div>
+              <div class="ahp__flow-node-text">Hiển thị Accuracy, ROC-AUC để giải thích độ tin cậy mô hình</div>
+            </div>
+          </div>
+
+          <div class="ahp__flow-col ahp__flow-col--merge">
+            <div class="ahp__flow-merge-arrow">Score<sub>Expert</sub> (0.6) ───┐</div>
+            <div class="ahp__flow-merge-arrow">P<sub>AI</sub> (0.4) ───────────┤</div>
+            <div class="ahp__flow-node ahp__flow-node--merge">
+              <div class="ahp__flow-node-title">B6. Fusion Layer</div>
+              <div class="ahp__flow-node-text">Final = W<sub>Expert</sub>·Score<sub>Expert</sub> + W<sub>AI</sub>·P<sub>AI</sub></div>
+            </div>
+            <div class="ahp__flow-arrow">↓</div>
+            <div class="ahp__flow-node ahp__flow-node--output">
+              <div class="ahp__flow-node-title">B7. Verdict + Storage</div>
+              <div class="ahp__flow-node-text">AN TOÀN / NGHI NGỜ / NGUY HIỂM → lưu DB → dùng cho tab thống kê</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ② Consistency panel -->
+        <div class="ahp__section-title">Kiểm tra tính nhất quán (Consistency Check)</div>
+        <div class="ahp__consistency-grid" id="ahpConsistency">
+          <!-- filled by JS -->
+        </div>
+
+        <!-- ③ Step-by-step derivation (collapsible) -->
+        <details class="ahp__details-block">
+          <summary class="ahp__section-title">▶ Bước 1 – Ma trận so sánh cặp A (Saaty scale 1–9)</summary>
+          <div class="ahp__matrix-wrap" id="ahpMatrixA"></div>
+        </details>
+
+        <details class="ahp__details-block">
+          <summary class="ahp__section-title">▶ Bước 2 – Ma trận chuẩn hoá &amp; véc-tơ trọng số w</summary>
+          <p class="ahp__step-note">Chia từng phần tử cho tổng cột → chuẩn hoá. Trọng số w<sub>i</sub> = trung bình hàng i. Nguồn: <a href="https://en.wikipedia.org/wiki/Analytic_hierarchy_process" target="_blank" rel="noopener noreferrer">AHP overview</a>.</p>
+          <div class="ahp__matrix-wrap" id="ahpMatrixNorm"></div>
+          <div class="ahp__weights-bar" id="ahpWeightsBar"></div>
+        </details>
+
+        <details class="ahp__details-block">
+          <summary class="ahp__section-title">▶ Bước 3 – Véc-tơ tổng có trọng số v = A × w &amp; λ<sub>i</sub></summary>
+          <p class="ahp__step-note">v<sub>i</sub> = Σ A<sub>ij</sub>·w<sub>j</sub> &nbsp;→&nbsp; λ<sub>i</sub> = v<sub>i</sub>/w<sub>i</sub> &nbsp;→&nbsp; λ<sub>max</sub> = mean(λ<sub>i</sub>). CI, CR theo: <a href="https://people.revoledu.com/kardi/tutorial/AHP/Consistency.htm" target="_blank" rel="noopener noreferrer">Consistency Index/Ratio</a>.</p>
+          <div id="ahpLambdaTable"></div>
+        </details>
+
+        <!-- ④ Per-APK criteria scores -->
+        <div class="ahp__section-title">Tỉ lệ đặc trưng phát hiện được &amp; đóng góp</div>
+        <div class="ahp__bars" id="ahpBars"></div>
+
+        <!-- ⑤ Radar -->
+        <div class="ahp__section-title">Biểu đồ radar tiêu chí</div>
+        <div class="ahp__radar-wrap">
+          <canvas id="ahpRadar" width="300" height="300"></canvas>
+        </div>
+
+        <div class="ahp__detail">
+          <span id="ahpMlDetail"></span>
+          <span id="ahpAhpDetail"></span>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel__title">Indicators</div>
         <div class="chips" id="chips"></div>
@@ -112,6 +274,44 @@
 
     </main>
 
-    <script src="{% static 'web/app.js' %}"></script>
+    <!-- ── Statistics overlay ─────────────────────────────────────────── -->
+    <div id="statsOverlay" class="stats-overlay" style="display:none">
+      <div class="stats-modal">
+        <div class="stats-modal__head">
+          <h2>📊 Thống kê lịch sử phân tích</h2>
+          <button id="closeStats" class="stats-close">✕</button>
+        </div>
+
+        <div class="stats-cards" id="statsCards"></div>
+
+        <div class="stats-charts">
+          <div class="stats-chart-box">
+            <div class="stats-chart-title">Phân loại (AI)</div>
+            <canvas id="chartPie" width="260" height="260"></canvas>
+          </div>
+          <div class="stats-chart-box">
+            <div class="stats-chart-title">Phân bố Risk Score (AHP)</div>
+            <canvas id="chartHist" width="400" height="260"></canvas>
+          </div>
+          <div class="stats-chart-box">
+            <div class="stats-chart-title">Trung bình đặc trưng</div>
+            <canvas id="chartAvg" width="260" height="260"></canvas>
+          </div>
+        </div>
+
+        <div class="stats-chart-title" style="margin-top:16px">Lịch sử gần đây</div>
+        <div class="stats-table-wrap">
+          <table class="stats-table" id="statsTable">
+            <thead><tr>
+              <th>#</th><th>File</th><th>Package</th><th>Thời gian</th>
+              <th>P_AI</th><th>AHP</th><th>Kết luận</th>
+            </tr></thead>
+            <tbody id="statsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <script src="{% static 'web/app.js' %}?v=5"></script>
   </body>
 </html>
