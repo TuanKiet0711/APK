@@ -238,15 +238,26 @@ function renderRisk(d) {
   // ── Decide which score to display ────────────────────────────────────────
   const ml = d.ml_prediction;
   const useML = ml && !ml.error && typeof ml.score === "number";
+  const ra = d.risk_assessment || null;
+  const useRA = ra && typeof ra.score === "number";
 
-  let score = useML ? ml.score : heuristicScore;
+  let score = useRA ? ra.score : (useML ? ml.score : heuristicScore);
   score = Math.min(100, Math.max(0, Math.round(score)));
 
   riskScoreEl.textContent = score;
 
   // Show ML badge / source note
   if (riskNotesEl) {
-    if (useML) {
+    if (useRA) {
+      const comp = [];
+      if (typeof ra.ml_score === "number") comp.push(`ML ${ra.ml_score.toFixed(1)}`);
+      if (typeof ra.ahp_score === "number") comp.push(`AHP ${ra.ahp_score.toFixed(1)}`);
+      if (typeof ra.heuristic_score === "number") comp.push(`Rule ${ra.heuristic_score.toFixed(1)}`);
+      riskNotesEl.textContent = `[Risk = ML] ${comp.join(" | ")}`;
+      if (notes.length > 0) {
+        riskNotesEl.textContent += " | " + notes.join(" | ");
+      }
+    } else if (useML) {
       const conf = (ml.probability * 100).toFixed(1);
       const modelNote = `[AI Model] Xác suất malware: ${conf}% (Drebin-215 Random Forest)`;
       riskNotesEl.textContent =
@@ -254,29 +265,34 @@ function renderRisk(d) {
           ? modelNote + " | " + notes.join(" | ")
           : modelNote;
     } else {
+      const mlErr =
+        ml && ml.error
+          ? `[ML unavailable] ${ml.error}${ml.detail ? `: ${ml.detail}` : ""}. `
+          : "";
       riskNotesEl.textContent =
         notes.length > 0
-          ? "[Heuristic] " + notes.join(" | ")
+          ? mlErr + "[Heuristic] " + notes.join(" | ")
           : "Không thấy dấu hiệu nhạy cảm nổi bật.";
     }
   }
 
   riskVerdictEl.classList.remove("safe", "warn", "bad");
   riskAdviceEl.classList.remove("safe", "warn", "bad");
-  if (score < 25) {
-    riskVerdictEl.textContent = useML ? "AI: Lành tính" : "Nguy cơ thấp";
+  const verdictClass = useRA ? ra.verdict_class : (score < 25 ? "safe" : score < 55 ? "warn" : "bad");
+  if (verdictClass === "safe") {
+    riskVerdictEl.textContent = useRA ? ra.verdict : (useML ? "AI: Lành tính" : "Nguy cơ thấp");
     riskVerdictEl.classList.add("safe");
     riskAdviceEl.textContent =
       "Khuyến nghị: Có thể cài đặt, nhưng vẫn nên tải từ nguồn tin cậy.";
     riskAdviceEl.classList.add("safe");
-  } else if (score < 55) {
-    riskVerdictEl.textContent = useML ? "AI: Đáng ngờ" : "Nguy cơ trung bình";
+  } else if (verdictClass === "warn") {
+    riskVerdictEl.textContent = useRA ? ra.verdict : (useML ? "AI: Đáng ngờ" : "Nguy cơ trung bình");
     riskVerdictEl.classList.add("warn");
     riskAdviceEl.textContent =
       "Khuyến nghị: Cân nhắc trước khi cài đặt, kiểm tra quyền và nguồn tải.";
     riskAdviceEl.classList.add("warn");
   } else {
-    riskVerdictEl.textContent = useML ? "AI: Malware" : "Nguy cơ cao";
+    riskVerdictEl.textContent = useRA ? ra.verdict : (useML ? "AI: Malware" : "Nguy cơ cao");
     riskVerdictEl.classList.add("bad");
     riskAdviceEl.textContent =
       "Khuyến nghị: Không nên cài đặt nếu không thực sự cần và không rõ nguồn gốc.";
@@ -284,7 +300,17 @@ function renderRisk(d) {
   }
 
   riskReasonsEl.innerHTML = "";
-  if (useML) {
+  if (useRA && Array.isArray(ra.reasons) && ra.reasons.length) {
+    const liRA = document.createElement("li");
+    liRA.textContent = `[Risk Engine] ${ra.verdict} — score ${score}`;
+    liRA.style.fontWeight = "bold";
+    riskReasonsEl.appendChild(liRA);
+    ra.reasons.forEach((r) => {
+      const li = document.createElement("li");
+      li.textContent = r;
+      riskReasonsEl.appendChild(li);
+    });
+  } else if (useML) {
     // Add ML result as first item
     const liML = document.createElement("li");
     liML.textContent = `[AI] ${ml.is_malware ? "Phát hiện MALWARE" : "Lành tính (Benign)"} — xác suất ${(ml.probability * 100).toFixed(1)}%`;
@@ -705,8 +731,8 @@ function renderStats(d) {
   // summary cards
   const cardsEl = document.getElementById("statsCards");
   if (cardsEl) {
-    const avgScore = d.averages?.avg_combined != null
-      ? Math.round(d.averages.avg_combined * 100) + " / 100"
+    const avgScore = d.averages?.avg_ml_prob != null
+      ? Math.round(d.averages.avg_ml_prob * 100) + " / 100"
       : "—";
     const malwarePct = d.total > 0 ? ((d.malware / d.total) * 100).toFixed(1) : "0";
     cardsEl.innerHTML = `
@@ -813,8 +839,8 @@ function renderStats(d) {
     tbody.innerHTML = (d.recent || []).map((row, i) => {
       const score = row.ahp_combined != null ? Math.round(row.ahp_combined * 100) : "—";
       const prob  = row.ml_probability != null ? (row.ml_probability * 100).toFixed(1) + "%" : "—";
-      const cls   = row.ahp_verdict === "NGUY HIỂM" ? "bad"
-                  : row.ahp_verdict === "NGHI NGỜ" ? "warn" : "safe";
+      const cls   = row.risk_class || (row.risk_verdict === "NGUY HIỂM" ? "bad"
+                  : row.risk_verdict === "NGHI NGỜ" ? "warn" : "safe");
       return `<tr>
         <td>${i + 1}</td>
         <td class="stats-td-file">${row.filename || "—"}</td>
@@ -822,7 +848,7 @@ function renderStats(d) {
         <td>${row.analyzed_at || "—"}</td>
         <td>${prob}</td>
         <td>${score}</td>
-        <td><span class="verdict-badge ${cls}">${row.ahp_verdict || "—"}</span></td>
+        <td><span class="verdict-badge ${cls}">${row.risk_verdict || row.ahp_verdict || "—"}</span></td>
       </tr>`;
     }).join("") || "<tr><td colspan='7' class='muted'>Chưa có dữ liệu.</td></tr>";
   }
